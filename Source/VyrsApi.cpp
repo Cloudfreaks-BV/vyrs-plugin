@@ -337,6 +337,50 @@ void VyrsApi::newTake (const String& songId, const String& style, const StringAr
     });
 }
 
+void VyrsApi::async (const String& path, const String& method, const String& jsonBody, int timeoutMs, std::function<void (Result)> done)
+{
+    auto flag = alive;
+    run ([this, flag, path, method, jsonBody, timeoutMs, done]
+    {
+        auto r = request (path, method, jsonBody, timeoutMs);
+        MessageManager::callAsync ([flag, done, r] { if (*flag) done (r); });
+    });
+}
+
+static String songPath (const String& songId, const char* what)
+{
+    return "/api/desktop/songs/" + URL::addEscapeChars (songId, false) + "/" + what;
+}
+
+void VyrsApi::lyrics (const String& songId, std::function<void (Result)> done)
+{
+    async (songPath (songId, "lyrics"), "GET", {}, 20000, std::move (done));
+}
+
+void VyrsApi::saveLyrics (const String& songId, const var& sections, int64 baseUpdatedAt, std::function<void (Result)> done)
+{
+    DynamicObject::Ptr b = new DynamicObject();
+    b->setProperty ("sections", sections);
+    if (baseUpdatedAt > 0)
+        b->setProperty ("baseUpdatedAt", baseUpdatedAt);
+    async (songPath (songId, "lyrics"), "PUT", JSON::toString (var (b.get()), true), 20000, std::move (done));
+}
+
+void VyrsApi::score (const String& songId, std::function<void (Result)> done)
+{
+    // scoring takes a while; the body is there so it's a real POST
+    async (songPath (songId, "score"), "POST", "{}", 180000, std::move (done));
+}
+
+void VyrsApi::rewrite (const String& songId, const String& sectionId, const String& instruction, std::function<void (Result)> done)
+{
+    DynamicObject::Ptr b = new DynamicObject();
+    b->setProperty ("sectionId", sectionId);
+    if (instruction.isNotEmpty())
+        b->setProperty ("instruction", instruction.substring (0, 300));
+    async (songPath (songId, "rewrite"), "POST", JSON::toString (var (b.get()), true), 180000, std::move (done));
+}
+
 void VyrsApi::openInBrowser (const String& path) const
 {
     URL (server + path).launchInDefaultBrowser();

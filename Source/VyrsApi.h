@@ -54,6 +54,15 @@ public:
     /** Makes a new take of the song in VYRS from its current lyrics (counts as one track). */
     void newTake (const juce::String& songId, const juce::String& style, const juce::StringArray& voice, std::function<void (Result)> done);
 
+    /** The song's lyrics: { sections: [{ id, name, text }], updatedAt, access, score }. */
+    void lyrics (const juce::String& songId, std::function<void (Result)> done);
+    /** Saves the sections; with baseUpdatedAt > 0 the server answers 409 when the song changed since then. */
+    void saveLyrics (const juce::String& songId, const juce::var& sections, juce::int64 baseUpdatedAt, std::function<void (Result)> done);
+    /** Hit score and feedback for the song's saved lyrics (same as the web studio). */
+    void score (const juce::String& songId, std::function<void (Result)> done);
+    /** Three rewrites of one saved section: { options: [{ label, text }] }. */
+    void rewrite (const juce::String& songId, const juce::String& sectionId, const juce::String& instruction, std::function<void (Result)> done);
+
     void openInBrowser (const juce::String& path) const;
 
     static juce::File library();
@@ -64,6 +73,8 @@ public:
 private:
     Result request (const juce::String& path, const juce::String& method, const juce::String& jsonBody = {}, int timeoutMs = 20000);
     void run (std::function<void()> job);
+    /** request() on the pool, with the result handed to done on the message thread. */
+    void async (const juce::String& path, const juce::String& method, const juce::String& jsonBody, int timeoutMs, std::function<void (Result)> done);
     void setToken (const juce::String& t);
     juce::String getToken() const;
     static juce::File appDir();
@@ -72,7 +83,7 @@ private:
     juce::String server;
     mutable juce::CriticalSection lock;
     juce::String token;
-    juce::ThreadPool pool { 2 };
+    juce::ThreadPool pool { 4 }; // a take or a score can take minutes; saves must not wait behind them
     std::atomic<bool> polling { false };
     std::shared_ptr<std::atomic<bool>> alive = std::make_shared<std::atomic<bool>> (true);
 

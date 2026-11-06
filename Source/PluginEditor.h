@@ -49,6 +49,38 @@ private:
     juce::String error;
 };
 
+/** The Hit score of a song and its feedback, as in the studio's Score panel. Sits in a Viewport. */
+class ScorePanel : public juce::Component
+{
+public:
+    void setScore (const juce::var& s, bool stale);
+    void setBusy (bool b) { busy = b; repaint(); }
+    /** Lays the panel out for this width and returns the height it needs. */
+    int heightFor (int width) { return render (nullptr, width); }
+    void paint (juce::Graphics& g) override { render (&g, getWidth()); }
+
+private:
+    int render (juce::Graphics*, int width);
+    juce::var score;
+    bool stale = false, busy = false;
+};
+
+/** The lyrics text: Cmd+S (Ctrl+S) saves instead of typing an "s". */
+class LyricsEditor : public juce::TextEditor
+{
+public:
+    std::function<void()> onSave;
+    bool keyPressed (const juce::KeyPress& k) override
+    {
+        if (k == juce::KeyPress ('s', juce::ModifierKeys::commandModifier, 0))
+        {
+            if (onSave) onSave();
+            return true;
+        }
+        return juce::TextEditor::keyPressed (k);
+    }
+};
+
 class VyrsEditor : public juce::AudioProcessorEditor, private juce::Timer, private juce::ListBoxModel
 {
 public:
@@ -58,6 +90,7 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
     void mouseDrag (const juce::MouseEvent&) override;
+    bool keyPressed (const juce::KeyPress&) override;
 
 private:
     void timerCallback() override;
@@ -75,6 +108,24 @@ private:
     void layoutFiles();
     juce::var currentSong() const;
     juce::var currentTake() const;
+
+    // lyrics
+    enum class Pane { takes, lyrics };
+    void showPane (Pane);
+    void loadLyrics();
+    void applyLyrics (const juce::var& json);
+    void saveLyrics (bool overwrite, std::function<void()> then = {});
+    void flushLyrics();
+    void runScore();
+    void runRewrite();
+    void layoutScore();
+    bool lyricsDirty() const;
+    bool lyricsReadOnly() const { return lyricsAccess == "view"; }
+    void updateLyricsButtons();
+    void setLyricsInfo (const juce::String& text, bool bad = false);
+    static juce::String sectionsToText (const juce::var& sections);
+    /** Parses "[Verse 1]" headings and lines back into sections, keeping the ids of the sections they came from. */
+    static juce::var textToSections (const juce::String& text, const juce::var& prev, juce::String& error);
 
     VyrsProcessor& proc;
     VyrsLook look;
@@ -107,7 +158,18 @@ private:
     juce::TextButton armBtn { "Record my vocal onto this take" };
     juce::Label takeStartLabel { {}, "Take starts in my DAW at (seconds)" }, takeStartEdit;
 
-    juce::Rectangle<int> headerArea, hostArea, recArea, dragAllArea;
+    // lyrics
+    Pane pane = Pane::takes;
+    juce::TextButton takesTab { "Takes" }, lyricsTab { "Lyrics" }, saveBtn { "Save" }, scoreBtn { "Score" }, rewriteBtn { "Rewrite section" };
+    LyricsEditor lyricsEdit;
+    ScorePanel scorePanel;
+    juce::Viewport scoreView;
+    juce::String lyricsSong, lyricsAccess, savedText, scoredText, lyricsInfo;
+    juce::var lyricsSections, lyricsScore;
+    juce::int64 lyricsBase = 0;
+    bool lyricsLoading = false, saving = false, scoring = false, rewriting = false, lyricsInfoBad = false;
+
+    juce::Rectangle<int> headerArea, hostArea, recArea, dragAllArea, titleArea, hintArea, statusArea;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (VyrsEditor)
 };

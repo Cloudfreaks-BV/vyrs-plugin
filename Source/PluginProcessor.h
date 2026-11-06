@@ -65,6 +65,9 @@ public:
     double takeStart = 0.0;
     bool wav = true;
 
+    /** Lyrics edited in the plug-in that aren't saved in VYRS yet (song id -> text), kept while the window is closed. */
+    juce::StringPairArray lyricsDrafts;
+
 private:
     void timerCallback() override;
     void setMessage (const juce::String& m) { const juce::ScopedLock sl (msgLock); message = m; }

@@ -135,13 +135,138 @@ void FileRow::mouseDrag (const MouseEvent& e)
     DragAndDropContainer::performExternalDragDropOfFiles ({ local.getFullPathName() }, false, this);
 }
 
+// ---------------------------------------------------------------- score panel
+
+void ScorePanel::setScore (const var& s, bool isStale)
+{
+    score = s;
+    stale = isStale;
+    repaint();
+}
+
+/** Draws the panel when g is given; always returns the height it takes at this width. */
+int ScorePanel::render (Graphics* g, int width)
+{
+    const float pad = 14.0f, w = (float) width - 2 * pad;
+    float y = pad;
+    auto block = [&] (const String& text, const Font& f, Colour c, float gapAfter, float indent = 0.0f)
+    {
+        AttributedString a;
+        a.setWordWrap (AttributedString::byWord);
+        a.append (text, f, c);
+        TextLayout l;
+        l.createLayout (a, jmax (40.0f, w - indent));
+        if (g != nullptr)
+            l.draw (*g, { pad + indent, y, w - indent, l.getHeight() });
+        y += l.getHeight() + gapAfter;
+    };
+
+    if (g != nullptr)
+    {
+        g->setColour (vyrs::coal);
+        g->fillRoundedRectangle (getLocalBounds().toFloat(), 12.0f);
+        g->setColour (vyrs::line);
+        g->drawRoundedRectangle (getLocalBounds().toFloat().reduced (0.5f), 12.0f, 1.0f);
+    }
+
+    if (! score.isObject())
+    {
+        block ("Hit score", FontOptions (14.0f, Font::bold), vyrs::paper, 6);
+        block (busy ? "Listening like an A&R…"
+                    : "Score your lyrics to see how they stack up against what makes hits in this genre work: hook, replay value, virality and how human it sounds.",
+               FontOptions (12.0f), vyrs::dust, 0);
+        return (int) (y + pad);
+    }
+
+    auto alpha = busy ? 0.4f : 1.0f;
+    if (g != nullptr)
+    {
+        g->setColour (vyrs::flare.withAlpha (alpha));
+        g->setFont (FontOptions (54.0f, Font::bold));
+        auto num = score["hitPotential"].toString();
+        g->drawText (num, (int) pad, (int) y, 110, 58, Justification::centredLeft);
+        auto x = (int) pad + GlyphArrangement::getStringWidthInt (g->getCurrentFont(), num) + 12;
+        g->setColour (vyrs::paper.withAlpha (alpha));
+        g->setFont (FontOptions (15.0f, Font::bold));
+        g->drawText (score["band"]["label"].toString(), x, (int) y + 12, (int) w - x, 20, Justification::centredLeft, true);
+        g->setColour (vyrs::dust);
+        g->setFont (FontOptions (12.0f));
+        g->drawText ("Hit potential", x, (int) y + 32, (int) w - x, 18, Justification::centredLeft, true);
+    }
+    y += 64;
+    if (stale)
+        block (busy ? "Scoring the new lyrics…" : "The lyrics changed since this score.", FontOptions (12.0f), vyrs::ember, 6);
+    if (score["hookLine"].toString().isNotEmpty())
+        block (String (CharPointer_UTF8 ("\xe2\x80\x9c")) + score["hookLine"].toString() + String (CharPointer_UTF8 ("\xe2\x80\x9d")),
+               FontOptions (14.0f, Font::italic), vyrs::paper.withAlpha (alpha), 12);
+
+    for (auto [label, key] : std::initializer_list<std::pair<const char*, const char*>> {
+             { "Hook strength", "hookStrength" }, { "Replay value", "replayValue" }, { "Virality", "virality" }, { "Human feel", "humanFeel" }, { "Originality", "originality" } })
+    {
+        auto v = jlimit (0, 100, (int) score[key]);
+        if (g != nullptr)
+        {
+            g->setFont (FontOptions (12.0f));
+            g->setColour (vyrs::dust);
+            g->drawText (label, (int) pad, (int) y, (int) w, 16, Justification::centredLeft);
+            g->setColour (vyrs::paper);
+            g->drawText (String (v), (int) pad, (int) y, (int) w, 16, Justification::centredRight);
+            g->setColour (vyrs::ash);
+            g->fillRoundedRectangle (pad, y + 19, w, 4, 2);
+            g->setColour (vyrs::flare.withAlpha (alpha));
+            g->fillRoundedRectangle (pad, y + 19, w * (float) v / 100.0f, 4, 2);
+        }
+        y += 31;
+    }
+    y += 6;
+
+    if (auto* st = score["strengths"].getArray(); st != nullptr && ! st->isEmpty())
+    {
+        block ("Working", FontOptions (12.0f, Font::bold), vyrs::dust, 6);
+        for (auto& x : *st)
+        {
+            if (g != nullptr)
+            {
+                g->setColour (vyrs::flare);
+                g->fillEllipse (pad, y + 5, 5, 5);
+            }
+            block (x.toString(), FontOptions (12.5f), vyrs::paper, 6, 14);
+        }
+        y += 8;
+    }
+
+    if (auto* tips = score["tips"].getArray(); tips != nullptr && ! tips->isEmpty())
+    {
+        block ("Make it stronger", FontOptions (12.0f, Font::bold), vyrs::dust, 8);
+        for (auto& t : *tips)
+        {
+            auto top = y;
+            y += 10;
+            auto sev = t["severity"].toString();
+            auto label = t["label"].toString().isNotEmpty() ? t["label"].toString() : t["message"].toString();
+            auto text = t["instruction"].toString() + (t["section"].toString().isNotEmpty() ? " (" + t["section"].toString() + ")" : String());
+            block (label, FontOptions (13.0f, Font::bold), vyrs::paper, 3, 22);
+            block (text, FontOptions (12.0f), vyrs::dust, 10, 22);
+            if (g != nullptr)
+            {
+                g->setColour (sev == "HIGH" ? vyrs::ember : sev == "MEDIUM" ? Colour (0xffffd23f) : vyrs::dust);
+                g->fillEllipse (pad + 9, top + 15, 6, 6);
+                g->setColour (vyrs::line);
+                g->drawRoundedRectangle (pad, top, w, y - top, 10.0f, 1.0f);
+            }
+            y += 8;
+        }
+    }
+    return (int) (y + pad);
+}
+
 // ---------------------------------------------------------------- editor
 
 VyrsEditor::VyrsEditor (VyrsProcessor& p) : AudioProcessorEditor (&p), proc (p)
 {
     setLookAndFeel (&look);
     setResizable (true, true);
-    setResizeLimits (720, 500, 1600, 1200);
+    setResizeLimits (720, 560, 1600, 1200);
     setSize (920, 620);
 
     primary (connectBtn);
@@ -264,9 +389,33 @@ VyrsEditor::VyrsEditor (VyrsProcessor& p) : AudioProcessorEditor (&p), proc (p)
         proc.arm (s["id"].toString(), t["id"].toString(), (int) t["number"], proc.takeStart);
     };
 
+    // lyrics: write and score the song without leaving the DAW
+    takesTab.onClick = [this] { showPane (Pane::takes); };
+    lyricsTab.onClick = [this] { showPane (Pane::lyrics); };
+    takesTab.setToggleState (true, dontSendNotification);
+    primary (scoreBtn);
+    saveBtn.onClick = [this] { saveLyrics (false); };
+    scoreBtn.onClick = [this] { runScore(); };
+    rewriteBtn.onClick = [this] { runRewrite(); };
+    lyricsEdit.onSave = [this] { saveLyrics (false); };
+    lyricsEdit.setMultiLine (true, true);
+    lyricsEdit.setReturnKeyStartsNewLine (true);
+    lyricsEdit.setTabKeyUsedAsCharacter (false);
+    lyricsEdit.setScrollbarsShown (true);
+    lyricsEdit.setFont (FontOptions (15.0f));
+    lyricsEdit.setIndents (14, 12);
+    lyricsEdit.setColour (TextEditor::outlineColourId, vyrs::line);
+    lyricsEdit.setColour (TextEditor::focusedOutlineColourId, vyrs::flare);
+    lyricsEdit.setTextToShowWhenEmpty ("[Verse 1]  then your lines underneath; a new [Chorus] starts the next section", vyrs::dust);
+    lyricsEdit.onTextChange = [this] { updateLyricsButtons(); };
+    scoreView.setViewedComponent (&scorePanel, false);
+    scoreView.setScrollBarsShown (true, false);
+    updateLyricsButtons();
+
     for (auto* c : std::initializer_list<Component*> { &connectBtn, &createBtn, &cancelBtn, &songList, &takeBox, &wavBtn, &mp3Btn, &studioBtn,
                                                        &refreshBtn, &signOutBtn, &folderBtn, &getAllBtn, &dragAll, &filesView, &armBtn,
-                                                       &takeStartLabel, &takeStartEdit, &newTakeBtn, &notesEdit, &energyBox, &tempoBox, &voiceBox })
+                                                       &takeStartLabel, &takeStartEdit, &newTakeBtn, &notesEdit, &energyBox, &tempoBox, &voiceBox,
+                                                       &takesTab, &lyricsTab, &saveBtn, &scoreBtn, &rewriteBtn, &lyricsEdit, &scoreView })
         addChildComponent (c);
 
     sourceLink.setFont (FontOptions (11.0f), false, Justification::centredLeft);
@@ -279,6 +428,7 @@ VyrsEditor::VyrsEditor (VyrsProcessor& p) : AudioProcessorEditor (&p), proc (p)
 
 VyrsEditor::~VyrsEditor()
 {
+    flushLyrics(); // closing the window must not lose what was typed
     dragAll.removeMouseListener (this);
     setLookAndFeel (nullptr);
 }
@@ -402,6 +552,19 @@ var VyrsEditor::currentTake() const { auto s = currentSong(); return s.isObject(
 
 void VyrsEditor::selectSong (const String& id)
 {
+    if (lyricsSong.isNotEmpty() && id != lyricsSong)
+    {
+        // another song: save the edits of this one in the background and start clean
+        flushLyrics();
+        lyricsSong = {};
+        lyricsSections = lyricsScore = var();
+        savedText = scoredText = {};
+        lyricsBase = 0;
+        lyricsLoading = saving = scoring = rewriting = false;
+        lyricsEdit.clear();
+        scorePanel.setBusy (false);
+        setLyricsInfo ({});
+    }
     songIndex = -1;
     for (int i = 0; i < getNumRows(); ++i)
         if (songs[i]["id"].toString() == id) songIndex = i;
@@ -420,6 +583,9 @@ void VyrsEditor::selectSong (const String& id)
     }
     takeBox.setSelectedItemIndex (want, dontSendNotification);
     selectTake (want);
+    if (pane == Pane::lyrics && s.isObject() && lyricsSong != id)
+        loadLyrics();
+    updateLyricsButtons();
 }
 
 void VyrsEditor::selectTake (int index)
@@ -553,10 +719,24 @@ void VyrsEditor::paint (Graphics& g)
         // song title and tempo hint
         auto s = currentSong();
         auto t = currentTake();
-        auto right = body.withTrimmedLeft (276);
         g.setColour (vyrs::paper);
         g.setFont (FontOptions (24.0f, Font::bold));
-        g.drawText (s["title"].toString(), right.getX(), right.getY(), right.getWidth() - 260, 32, Justification::centredLeft, true);
+        g.drawText (s["title"].toString(), titleArea, Justification::centredLeft, true);
+        if (pane == Pane::lyrics)
+        {
+            auto bad = lyricsInfoBad;
+            auto text = lyricsInfo;
+            if (! bad && lyricsDirty() && ! saving && ! scoring && ! rewriting)
+               #if JUCE_MAC
+                text = String (CharPointer_UTF8 ("Unsaved changes  \xc2\xb7  \xe2\x8c\x98S saves"));
+               #else
+                text = String (CharPointer_UTF8 ("Unsaved changes  \xc2\xb7  Ctrl+S saves"));
+               #endif
+            g.setColour (bad ? vyrs::ember : lyricsDirty() ? vyrs::ember : vyrs::dust);
+            g.setFont (FontOptions (12.5f));
+            g.drawFittedText (text, statusArea, Justification::centredRight, 2);
+            return;
+        }
         if (t.isObject())
         {
             String hint;
@@ -569,7 +749,7 @@ void VyrsEditor::paint (Graphics& g)
                 hint = "Click a file to get it, then drag it onto a track. Files are saved in Music/VYRS.";
             g.setColour (hint.startsWith ("This take") ? vyrs::ember : vyrs::dust);
             g.setFont (FontOptions (13.0f));
-            g.drawText (hint, right.getX(), right.getY() + 152, right.getWidth(), 20, Justification::centredLeft, true);
+            g.drawText (hint, hintArea, Justification::centredLeft, true);
         }
 
         // recording panel
@@ -603,6 +783,7 @@ void VyrsEditor::resized()
 {
     sourceLink.setBounds (getLocalBounds().removeFromBottom (18).reduced (24, 0).withWidth (300));
     headerArea = getLocalBounds().removeFromTop (54);
+    auto typing = lyricsEdit.hasKeyboardFocus (true);
     hostArea = headerArea.reduced (20, 0).withTrimmedLeft (110).withWidth (280);
     for (auto* c : getChildren())
         c->setVisible (c == &sourceLink);
@@ -651,11 +832,49 @@ void VyrsEditor::resized()
     songList.setVisible (true);
     body.removeFromLeft (24);
 
+    auto tabRow = body.removeFromTop (30);
+    takesTab.setBounds (tabRow.removeFromLeft (84));
+    tabRow.removeFromLeft (6);
+    lyricsTab.setBounds (tabRow.removeFromLeft (84));
+    studioBtn.setBounds (tabRow.removeFromRight (130));
+    for (auto* c : { &takesTab, &lyricsTab, &studioBtn })
+        c->setVisible (true);
+    body.removeFromTop (10);
+
     auto titleRow = body.removeFromTop (34);
-    studioBtn.setBounds (titleRow.removeFromRight (130));
-    titleRow.removeFromRight (8);
+    if (pane == Pane::lyrics)
+    {
+        statusArea = titleRow.removeFromRight (jmin (300, titleRow.getWidth() / 2));
+        titleArea = titleRow.withTrimmedRight (8);
+        body.removeFromTop (8);
+        auto tools = body.removeFromTop (32);
+        saveBtn.setBounds (tools.removeFromLeft (90));
+        tools.removeFromLeft (8);
+        scoreBtn.setBounds (tools.removeFromLeft (110));
+        tools.removeFromLeft (8);
+        rewriteBtn.setBounds (tools.removeFromLeft (150));
+        body.removeFromTop (12);
+        if (body.getWidth() >= 640)
+        {
+            scoreView.setBounds (body.removeFromRight (290));
+            body.removeFromRight (14);
+        }
+        else
+        {
+            scoreView.setBounds (body.removeFromBottom (jmin (240, body.getHeight() / 2)));
+            body.removeFromBottom (12);
+        }
+        lyricsEdit.setBounds (body);
+        for (auto* c : std::initializer_list<Component*> { &saveBtn, &scoreBtn, &rewriteBtn, &lyricsEdit, &scoreView })
+            c->setVisible (true);
+        layoutScore();
+        if (typing)
+            lyricsEdit.grabKeyboardFocus();
+        return;
+    }
     mp3Btn.setBounds (titleRow.removeFromRight (56));
     wavBtn.setBounds (titleRow.removeFromRight (56));
+    titleArea = titleRow.withTrimmedRight (8);
     body.removeFromTop (10);
     auto takeRow = body.removeFromTop (32);
     takeBox.setBounds (takeRow.removeFromLeft (jmin (320, takeRow.getWidth() / 2)));
@@ -675,7 +894,7 @@ void VyrsEditor::resized()
     newTakeBtn.setBounds (newRow.removeFromRight (140));
     newRow.removeFromRight (8);
     notesEdit.setBounds (newRow);
-    body.removeFromTop (24);
+    hintArea = body.removeFromTop (24);
 
     recArea = body.removeFromBottom (150);
     body.removeFromBottom (12);
@@ -691,4 +910,359 @@ void VyrsEditor::resized()
     for (auto* c : std::initializer_list<Component*> { &studioBtn, &mp3Btn, &wavBtn, &takeBox, &filesView, &armBtn, &takeStartLabel, &takeStartEdit, &newTakeBtn, &notesEdit, &energyBox, &tempoBox, &voiceBox })
         c->setVisible (true);
     layoutFiles();
+}
+
+// ---------------------------------------------------------------- lyrics
+
+bool VyrsEditor::keyPressed (const KeyPress& key)
+{
+    // when the lyrics text has focus it handles this itself (LyricsEditor)
+    if (key == KeyPress ('s', ModifierKeys::commandModifier, 0) && view == View::library && pane == Pane::lyrics)
+    {
+        saveLyrics (false);
+        return true;
+    }
+    return false;
+}
+
+void VyrsEditor::showPane (Pane p)
+{
+    pane = p;
+    takesTab.setToggleState (p == Pane::takes, dontSendNotification);
+    lyricsTab.setToggleState (p == Pane::lyrics, dontSendNotification);
+    if (auto s = currentSong(); p == Pane::lyrics && s.isObject() && lyricsSong != s["id"].toString())
+        loadLyrics();
+    resized();
+    repaint();
+    if (p == Pane::lyrics && lyricsEdit.isShowing() && ! lyricsReadOnly())
+        lyricsEdit.grabKeyboardFocus();
+}
+
+String VyrsEditor::sectionsToText (const var& sections)
+{
+    StringArray parts;
+    if (auto* a = sections.getArray())
+        for (auto& s : *a)
+            parts.add ("[" + s["name"].toString() + "]\n" + s["text"].toString());
+    return parts.joinIntoString ("\n\n");
+}
+
+var VyrsEditor::textToSections (const String& text, const var& prev, String& error)
+{
+    struct Sec { String name, text; };
+    std::vector<Sec> out;
+    for (auto& raw : StringArray::fromLines (text))
+    {
+        auto t = raw.trim();
+        if (t.length() > 2 && t.startsWithChar ('[') && t.endsWithChar (']'))
+        {
+            auto name = t.substring (1, t.length() - 1).trim();
+            out.push_back ({ name.isEmpty() ? String ("Section") : name, {} });
+            continue;
+        }
+        if (out.empty())
+        {
+            if (t.isEmpty()) continue;
+            out.push_back ({ "Verse", {} }); // lines before the first heading
+        }
+        auto& s = out.back();
+        s.text << (s.text.isEmpty() ? "" : "\n") << raw.trimEnd();
+    }
+
+    // keep each section's id: same name first (it may have moved), else same place
+    const int n = prev.isArray() ? prev.size() : 0;
+    std::vector<bool> used ((size_t) n, false);
+    Array<var> result;
+    for (size_t i = 0; i < out.size(); ++i)
+    {
+        auto& s = out[i];
+        while (s.text.endsWithChar ('\n')) s.text = s.text.dropLastCharacters (1);
+        String id;
+        for (int j = 0; j < n && id.isEmpty(); ++j)
+            if (! used[(size_t) j] && prev[j]["name"].toString() == s.name) { id = prev[j]["id"].toString(); used[(size_t) j] = true; }
+        if (id.isEmpty() && (int) i < n && ! used[i]) { id = prev[(int) i]["id"].toString(); used[i] = true; }
+        if (id.isEmpty()) id = Uuid().toDashedString();
+        DynamicObject::Ptr o = new DynamicObject();
+        o->setProperty ("id", id);
+        o->setProperty ("name", s.name);
+        o->setProperty ("text", s.text);
+        result.add (var (o.get()));
+
+        // the same limits as the web studio
+        if (error.isEmpty() && s.name.length() > 60) error = "Section names can be 60 characters at most.";
+        if (error.isEmpty() && s.text.length() > 4000) error = "[" + s.name + "] is too long: 4000 characters at most.";
+    }
+    if (out.size() > 30) error = "A song can have 30 sections at most.";
+    return result;
+}
+
+bool VyrsEditor::lyricsDirty() const
+{
+    return lyricsSong.isNotEmpty() && ! lyricsLoading && ! lyricsReadOnly() && lyricsEdit.getText() != savedText;
+}
+
+void VyrsEditor::setLyricsInfo (const String& text, bool bad)
+{
+    lyricsInfo = text;
+    lyricsInfoBad = bad;
+    repaint (statusArea);
+}
+
+void VyrsEditor::updateLyricsButtons()
+{
+    auto ready = lyricsSong.isNotEmpty() && ! lyricsLoading && ! lyricsReadOnly();
+    auto dirty = lyricsDirty();
+    saveBtn.setEnabled (ready && ! saving && dirty);
+    saveBtn.setButtonText (saving ? "Saving…" : "Save");
+    scoreBtn.setEnabled (ready && ! scoring);
+    scoreBtn.setButtonText (scoring ? "Scoring…" : lyricsScore.isObject() ? "Score again" : "Score");
+    rewriteBtn.setEnabled (ready && ! rewriting);
+    rewriteBtn.setButtonText (rewriting ? "Rewriting…" : "Rewrite section");
+    lyricsTab.setButtonText (dirty ? String (CharPointer_UTF8 ("Lyrics \xe2\x80\xa2")) : String ("Lyrics"));
+    auto stale = lyricsScore.isObject() && scoredText.isNotEmpty() && lyricsEdit.getText() != scoredText;
+    scorePanel.setScore (lyricsScore, stale);
+    layoutScore();
+    repaint (statusArea);
+}
+
+void VyrsEditor::layoutScore()
+{
+    auto w = jmax (160, scoreView.getWidth() - scoreView.getScrollBarThickness() - 4);
+    scorePanel.setSize (w, jmax (scoreView.getHeight(), scorePanel.heightFor (w)));
+}
+
+void VyrsEditor::applyLyrics (const var& json)
+{
+    lyricsSections = json["sections"];
+    lyricsBase = (int64) json["updatedAt"];
+    lyricsAccess = json["access"].toString();
+    savedText = sectionsToText (lyricsSections);
+    lyricsEdit.setReadOnly (lyricsReadOnly());
+    lyricsEdit.setText (savedText, false);
+    lyricsScore = json["score"].isObject() ? json["score"] : var();
+    scoredText = lyricsScore.isObject() ? savedText : String();
+    setLyricsInfo (lyricsReadOnly() ? "Shared with you to read only." : String());
+    updateLyricsButtons();
+}
+
+void VyrsEditor::loadLyrics()
+{
+    auto s = currentSong();
+    if (! s.isObject())
+        return;
+    auto id = s["id"].toString();
+    lyricsSong = id;
+    lyricsLoading = true;
+    lyricsEdit.clear();
+    lyricsEdit.setReadOnly (true);
+    setLyricsInfo ("Loading lyrics…");
+    updateLyricsButtons();
+    SafePointer<VyrsEditor> self (this);
+    proc.api.lyrics (id, [self, id] (VyrsApi::Result r)
+    {
+        if (self == nullptr || self->lyricsSong != id) return;
+        self->lyricsLoading = false;
+        if (! r.ok())
+        {
+            if (! self->proc.api.isSignedIn()) return self->showSignedOut ("You were disconnected. Connect again to continue.");
+            self->lyricsSong = {}; // try again next time
+            self->setLyricsInfo (r.error, true);
+            self->updateLyricsButtons();
+            return;
+        }
+        self->applyLyrics (r.json);
+        // edits that couldn't be saved before (window closed, offline) come back
+        auto draft = self->proc.lyricsDrafts.getValue (id, {});
+        if (draft.isNotEmpty() && draft != self->savedText && ! self->lyricsReadOnly())
+        {
+            self->lyricsEdit.setText (draft, false);
+            self->setLyricsInfo ("Your unsaved edits are back. Save to keep them.");
+            self->updateLyricsButtons();
+        }
+    });
+}
+
+void VyrsEditor::saveLyrics (bool overwrite, std::function<void()> then)
+{
+    if (lyricsSong.isEmpty() || lyricsLoading || lyricsReadOnly() || saving)
+        return;
+    if (! lyricsDirty())
+    {
+        if (then) then();
+        return;
+    }
+    String error;
+    auto text = lyricsEdit.getText();
+    auto sections = textToSections (text, lyricsSections, error);
+    if (error.isNotEmpty())
+        return setLyricsInfo (error, true);
+
+    auto id = lyricsSong;
+    proc.lyricsDrafts.set (id, text);
+    saving = true;
+    setLyricsInfo ("Saving…");
+    updateLyricsButtons();
+    SafePointer<VyrsEditor> self (this);
+    auto* p = &proc;
+    proc.api.saveLyrics (id, sections, overwrite ? 0 : lyricsBase, [self, p, id, text, then] (VyrsApi::Result r)
+    {
+        if (r.ok() && p->lyricsDrafts.getValue (id, {}) == text)
+            p->lyricsDrafts.remove (StringRef (id));
+        if (self == nullptr || self->lyricsSong != id) return;
+        self->saving = false;
+        if (r.status == 409)
+        {
+            // changed in the browser since it was opened here: the artist decides
+            self->setLyricsInfo ("Changed in VYRS since you opened it.", true);
+            self->updateLyricsButtons();
+            auto server = r.json;
+            AlertWindow::showAsync (MessageBoxOptions::makeOptionsOkCancel (MessageBoxIconType::WarningIcon, "These lyrics changed in VYRS",
+                                        "They were edited somewhere else (maybe in your browser) after you opened them here. Keep your version here, or load the one in VYRS?",
+                                        "Keep mine", "Load from VYRS", self.getComponent()),
+                                    [self, id, server] (int keep)
+                                    {
+                                        if (self == nullptr || self->lyricsSong != id) return;
+                                        if (keep == 1) return self->saveLyrics (true);
+                                        self->proc.lyricsDrafts.remove (StringRef (id));
+                                        self->applyLyrics (server);
+                                    });
+            return;
+        }
+        if (! r.ok())
+        {
+            if (! self->proc.api.isSignedIn()) return self->showSignedOut ("You were disconnected. Connect again to continue.");
+            self->setLyricsInfo (r.error, true);
+            self->updateLyricsButtons();
+            return;
+        }
+        self->lyricsSections = r.json["sections"];
+        self->lyricsBase = (int64) r.json["updatedAt"];
+        self->savedText = text;
+        self->setLyricsInfo ("Saved in VYRS.");
+        self->updateLyricsButtons();
+        if (then) then();
+    });
+}
+
+void VyrsEditor::flushLyrics()
+{
+    if (! lyricsDirty())
+        return;
+    String error;
+    auto text = lyricsEdit.getText();
+    auto sections = textToSections (text, lyricsSections, error);
+    auto id = lyricsSong;
+    proc.lyricsDrafts.set (id, text); // kept until VYRS has it
+    if (error.isNotEmpty() || saving)
+        return;
+    auto* p = &proc;
+    proc.api.saveLyrics (id, sections, lyricsBase, [p, id, text] (VyrsApi::Result r)
+    {
+        if (r.ok() && p->lyricsDrafts.getValue (id, {}) == text)
+            p->lyricsDrafts.remove (StringRef (id));
+    });
+}
+
+void VyrsEditor::runScore()
+{
+    if (scoring || lyricsSong.isEmpty() || lyricsLoading || lyricsReadOnly())
+        return;
+    if (lyricsEdit.getText().trim().isEmpty())
+        return setLyricsInfo ("Write some lyrics first.", true);
+    if (lyricsDirty())
+        return saveLyrics (false, [this] { runScore(); }); // the score is of what's saved in VYRS
+
+    scoring = true;
+    scorePanel.setBusy (true);
+    setLyricsInfo ("Scoring… this takes about half a minute.");
+    updateLyricsButtons();
+    auto id = lyricsSong;
+    auto text = lyricsEdit.getText();
+    SafePointer<VyrsEditor> self (this);
+    proc.api.score (id, [self, id, text] (VyrsApi::Result r)
+    {
+        if (self == nullptr || self->lyricsSong != id) return;
+        self->scoring = false;
+        self->scorePanel.setBusy (false);
+        if (! r.ok())
+        {
+            if (! self->proc.api.isSignedIn()) return self->showSignedOut ("You were disconnected. Connect again to continue.");
+            self->setLyricsInfo (r.error, true);
+            self->updateLyricsButtons();
+            return;
+        }
+        self->lyricsScore = r.json;
+        self->scoredText = text;
+        self->setLyricsInfo ("Hit score " + r.json["hitPotential"].toString() + ": " + r.json["band"]["label"].toString());
+        self->updateLyricsButtons();
+        self->scoreView.setViewPosition (0, 0);
+    });
+}
+
+void VyrsEditor::runRewrite()
+{
+    if (rewriting || lyricsSong.isEmpty() || lyricsLoading || lyricsReadOnly())
+        return;
+    if (lyricsDirty())
+        return saveLyrics (false, [this] { runRewrite(); }); // the server rewrites a saved section
+    if (! lyricsSections.isArray() || lyricsSections.size() == 0)
+        return setLyricsInfo ("Write a section first: a heading like [Verse 1] with lines under it.", true);
+
+    // the section the cursor is in
+    String ignore;
+    auto before = textToSections (lyricsEdit.getText().substring (0, lyricsEdit.getCaretPosition()), {}, ignore);
+    auto index = jlimit (0, lyricsSections.size() - 1, before.size() - 1);
+    auto target = lyricsSections[index];
+    auto id = lyricsSong;
+    auto sectionId = target["id"].toString();
+    auto name = target["name"].toString();
+
+    rewriting = true;
+    setLyricsInfo ("Rewriting [" + name + "]…");
+    updateLyricsButtons();
+    SafePointer<VyrsEditor> self (this);
+    proc.api.rewrite (id, sectionId, {}, [self, id, sectionId, name] (VyrsApi::Result r)
+    {
+        if (self == nullptr || self->lyricsSong != id) return;
+        self->rewriting = false;
+        self->updateLyricsButtons();
+        auto options = r.json["options"];
+        if (! r.ok() || ! options.isArray() || options.size() == 0)
+        {
+            if (! self->proc.api.isSignedIn()) return self->showSignedOut ("You were disconnected. Connect again to continue.");
+            return self->setLyricsInfo (r.ok() ? String ("No rewrite came back. Try again.") : r.error, true);
+        }
+        self->setLyricsInfo ("Pick one of the new takes on [" + name + "].");
+
+        // every line of an option picks that option
+        PopupMenu m;
+        m.addSectionHeader ("New takes on [" + name + "]: click one to use it");
+        for (int i = 0; i < options.size(); ++i)
+        {
+            m.addSeparator();
+            m.addSectionHeader (options[i]["label"].toString());
+            for (auto& line : StringArray::fromLines (options[i]["text"].toString()))
+                if (line.trim().isNotEmpty())
+                    m.addItem (i + 1, line.trim());
+        }
+        m.showMenuAsync (PopupMenu::Options().withTargetComponent (&self->rewriteBtn), [self, id, sectionId, options] (int pick)
+        {
+            if (self == nullptr || self->lyricsSong != id) return;
+            if (pick <= 0) return self->setLyricsInfo ({});
+            String error;
+            auto sections = textToSections (self->lyricsEdit.getText(), self->lyricsSections, error);
+            bool found = false;
+            for (auto& s : *sections.getArray())
+                if (s["id"].toString() == sectionId)
+                {
+                    s.getDynamicObject()->setProperty ("text", options[pick - 1]["text"].toString().trim());
+                    found = true;
+                }
+            if (! found)
+                return self->setLyricsInfo ("That section isn't in the lyrics any more.", true);
+            self->lyricsEdit.setText (sectionsToText (sections), false);
+            self->setLyricsInfo ("New take in place. Save to keep it.");
+            self->updateLyricsButtons();
+        });
+    });
 }
